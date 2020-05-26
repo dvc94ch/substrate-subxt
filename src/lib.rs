@@ -110,22 +110,17 @@ use crate::{
     },
 };
 
-/// ClientBuilder for constructing a Client.
+/// ClientConfig for constructing a Client.
 #[derive(Default)]
-pub struct ClientBuilder<T: System, S = MultiSignature, E = DefaultExtra<T>> {
-    _marker: std::marker::PhantomData<(T, S, E)>,
+pub struct ClientConfig {
     url: Option<String>,
     client: Option<jsonrpsee::Client>,
 }
 
-impl<T: System, S, E> ClientBuilder<T, S, E> {
-    /// Creates a new ClientBuilder.
+impl ClientConfig {
+    /// Creates a new ClientConfig.
     pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-            url: None,
-            client: None,
-        }
+        Self::default()
     }
 
     /// Sets the jsonrpsee client.
@@ -138,38 +133,6 @@ impl<T: System, S, E> ClientBuilder<T, S, E> {
     pub fn set_url<P: Into<String>>(mut self, url: P) -> Self {
         self.url = Some(url.into());
         self
-    }
-
-    /// Creates a new Client.
-    pub async fn build(self) -> Result<Client<T, S, E>, Error> {
-        let client = if let Some(client) = self.client {
-            client
-        } else {
-            let url = self
-                .url
-                .as_ref()
-                .map(|s| &**s)
-                .unwrap_or("ws://127.0.0.1:9944");
-            if url.starts_with("ws://") || url.starts_with("wss://") {
-                jsonrpsee::ws_client(url).await?
-            } else {
-                jsonrpsee::http_client(url)
-            }
-        };
-        let rpc = Rpc::new(client);
-        let (metadata, genesis_hash, runtime_version) = future::join3(
-            rpc.metadata(),
-            rpc.genesis_hash(),
-            rpc.runtime_version(None),
-        )
-        .await;
-        Ok(Client {
-            rpc,
-            genesis_hash: genesis_hash?,
-            metadata: metadata?,
-            runtime_version: runtime_version?,
-            _marker: PhantomData,
-        })
     }
 }
 
@@ -195,6 +158,37 @@ impl<T: System, S, E> Clone for Client<T, S, E> {
 }
 
 impl<T: System, S, E> Client<T, S, E> {
+    /// Creates a new client with defaults.
+    pub async fn new() -> Result<Self, Error> {
+        Self::with_config(Default::default()).await
+    }
+
+    /// Creates a new client from a `ClientConfig`.
+    pub async fn with_config(config: ClientConfig) -> Result<Self, Error> {
+        let client = if let Some(client) = config.client {
+            client
+        } else {
+            let url = config
+                .url
+                .as_ref()
+                .map(|s| &**s)
+                .unwrap_or("ws://127.0.0.1:9944");
+            if url.starts_with("ws://") || url.starts_with("wss://") {
+                jsonrpsee::ws_client(url).await?
+            } else {
+                jsonrpsee::http_client(url)
+            }
+        };
+        let rpc = Rpc::new(client);
+        let (metadata, genesis_hash, runtime_version) = future::join3(
+            rpc.metadata(),
+            rpc.genesis_hash(),
+            rpc.runtime_version(None),
+        )
+        .await;
+        Ok(Self { _marker: PhantomData, rpc, genesis_hash: genesis_hash?, metadata: metadata?, runtime_version: runtime_version? })
+    }
+
     /// Returns the chain metadata.
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
